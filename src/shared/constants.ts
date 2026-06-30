@@ -1,0 +1,15 @@
+export const WORLD_SIZE = 6000;
+export const FOOD_COUNT = 1000;
+export const VIRUS_COUNT = 30;
+export const BASE_PLAYER_MASS = 10;
+export const FOOD_MASS = 1;
+export const VIRUS_MASS = 100;
+export const EAT_MASS_RATIO = 1.15; // Must be 15% larger to eat
+export const SPLIT_COOLDOWN_MS = 15000;
+export const TICK_RATE = 60; // Server ticks per second
+export const BROADCAST_RATE = 20; // Network broadcasts per second
+export const MAX_NAME_LENGTH = 15;
+export const EJECT_MASS_COST = 16;
+export const EJECT_MASS_VALUE = 12; // Ejected mass gives less than it costs
+export const EJECT_SPEED = 250; // pixels per second initial speed
+export const SPLIT_SPEED = 350; // pixels per second initial speed

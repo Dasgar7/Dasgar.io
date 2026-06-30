@@ -1,0 +1,6 @@
+{
+  "name": "Dasgar.io",
+  "description": "A real-time multiplayer browser game inspired by Agar.io, featuring a server-authoritative physics engine, WebSockets, and Canvas2D rendering.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
