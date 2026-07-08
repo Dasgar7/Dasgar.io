@@ -294,6 +294,7 @@ export default function Game() {
 
   const [showSettings, setShowSettings] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [socketId, setSocketId] = useState<string | null>(null);
   const [controlMode, setControlMode] = useState<'joystick' | 'tap'>('joystick');
   const [stopOnRelease, setStopOnRelease] = useState(false);
   const [directionOnTouch, setDirectionOnTouch] = useState(false);
@@ -320,7 +321,14 @@ export default function Game() {
     const socket = io({ path: '/socket.io' });
     socketRef.current = socket;
 
+    socket.on('connect', () => {
+      setSocketId(socket.id || null);
+    });
+
     socket.on('state', (state: GameStatePayload) => {
+      if (socket.id && socketId !== socket.id) {
+        setSocketId(socket.id);
+      }
       stateBufferRef.current.push({ time: performance.now(), state });
       if (stateBufferRef.current.length > 15) stateBufferRef.current.shift();
 
@@ -1966,11 +1974,16 @@ export default function Game() {
                 </div>
               </motion.button>
             ) : (
-              <div className="w-48 bg-black/60 backdrop-blur border border-white/10 rounded-lg overflow-hidden flex flex-col shadow-xl">
-                <div className="bg-white/5 px-3 py-2 border-b border-white/10 font-bold flex items-center justify-between tracking-wider text-sm text-gray-300">
-                  <span className="flex items-center gap-1.5">
-                    <Crown className="w-4 h-4 text-[#ffd700] fill-[#ffd700]/10" />
-                    LB
+              <div className="w-52 bg-black/60 backdrop-blur border border-white/10 rounded-lg overflow-hidden flex flex-col shadow-xl">
+                <div className="bg-white/5 px-3 py-2 border-b border-white/10 font-bold flex items-center justify-between tracking-wider text-sm text-gray-200">
+                  <span className="flex items-center gap-1.5 font-bold uppercase tracking-wide">
+                    {/* Tiny custom podium SVG matching reference exactly */}
+                    <svg viewBox="0 0 64 64" className="w-4 h-4 text-white" fill="currentColor">
+                      <rect x="12" y="30" width="13" height="14" rx="1.5" />
+                      <rect x="25" y="21" width="14" height="23" rx="1.5" />
+                      <rect x="39" y="33" width="13" height="11" rx="1.5" />
+                    </svg>
+                    Leaderboard
                   </span>
                   <button
                     type="button"
@@ -1984,13 +1997,66 @@ export default function Game() {
                   </button>
                 </div>
                 <div className="p-2 flex flex-col gap-1">
-                  {leaderboard.length === 0 && <div className="text-center text-gray-500 text-xs py-2">No players</div>}
-                  {leaderboard.map((entry, idx) => (
-                    <div key={entry.id} className={`flex justify-between items-center text-xs px-2 py-1 rounded ${entry.id === socketRef.current?.id ? 'bg-[#00ff88]/20 text-[#00ff88] font-bold' : 'text-gray-300'}`}>
-                      <span className="truncate w-24">{idx + 1}. {entry.name || 'Anonymous'}</span>
-                      <span>{Math.round(entry.score)}</span>
-                    </div>
-                  ))}
+                  {leaderboard.length === 0 ? (
+                    <div className="text-center text-gray-500 text-xs py-2 font-mono">No players</div>
+                  ) : (
+                    <>
+                      {leaderboard.slice(0, 5).map((entry, idx) => {
+                        const isMe = entry.id === socketId;
+                        return (
+                          <div
+                            key={entry.id}
+                            className={`flex justify-between items-center text-xs px-2 py-1 rounded transition-colors drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)] ${
+                              isMe
+                                ? 'bg-gradient-to-r from-[#ffd700]/15 to-transparent text-[#ffd700] font-bold'
+                                : 'text-gray-200 font-medium'
+                            }`}
+                          >
+                            <span className="flex items-center gap-1.5 truncate max-w-[135px]">
+                              {isMe && (
+                                <span className="w-3 h-3 rounded-full border-2 border-[#ffd700] bg-transparent flex-shrink-0 animate-pulse" />
+                              )}
+                              <span className="truncate">
+                                {idx + 1}. {entry.name || 'Anonymous'}
+                              </span>
+                            </span>
+                            <span className={isMe ? 'text-[#ffd700]' : 'text-gray-400 font-mono'}>
+                              {Math.round(entry.score)}
+                            </span>
+                          </div>
+                        );
+                      })}
+
+                      {(() => {
+                        const myIndex = leaderboard.findIndex(entry => entry.id === socketId);
+                        if (myIndex >= 5) {
+                          const myEntry = leaderboard[myIndex];
+                          return (
+                            <>
+                              <div className="text-center text-gray-500 text-[10px] leading-none py-0.5 tracking-widest">
+                                •••
+                              </div>
+                              <div
+                                key={myEntry.id}
+                                className="flex justify-between items-center text-xs px-2 py-1 rounded bg-gradient-to-r from-[#ffd700]/20 to-transparent text-[#ffd700] font-bold drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]"
+                              >
+                                <span className="flex items-center gap-1.5 truncate max-w-[135px]">
+                                  <span className="w-3 h-3 rounded-full border-2 border-[#ffd700] bg-transparent flex-shrink-0 animate-pulse" />
+                                  <span className="truncate">
+                                    {myIndex + 1}. {myEntry.name || 'Anonymous'}
+                                  </span>
+                                </span>
+                                <span className="text-[#ffd700] font-mono">
+                                  {Math.round(myEntry.score)}
+                                </span>
+                              </div>
+                            </>
+                          );
+                        }
+                        return null;
+                      })()}
+                    </>
+                  )}
                 </div>
               </div>
             )}

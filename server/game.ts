@@ -688,8 +688,7 @@ export class GameServer {
     // Pre-calculate packed global state that doesn't depend on viewport
     const leaderboard: LeaderboardEntry[] = Array.from(this.players.values())
       .map(p => ({ id: p.id, name: p.name, score: Math.round(p.score) }))
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 10);
+      .sort((a, b) => b.score - a.score);
 
     const packedViruses = Array.from(this.viruses.values()).map(v => ({
       id: v.id, x: Math.round(v.x), y: Math.round(v.y), r: Math.round(v.radius)
@@ -723,8 +722,7 @@ export class GameServer {
     if (!leaderboard) {
       leaderboard = Array.from(this.players.values())
         .map(p => ({ id: p.id, name: p.name, score: Math.round(p.score) }))
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 10);
+        .sort((a, b) => b.score - a.score);
     }
     if (!packedViruses) {
       packedViruses = Array.from(this.viruses.values()).map(v => ({
