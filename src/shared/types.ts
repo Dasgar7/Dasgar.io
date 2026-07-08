@@ -24,6 +24,7 @@ export interface Player {
   targetX: number;
   targetY: number;
   lastSplitTime?: number;
+  isSpectating?: boolean;
 }
 
 export interface Food {

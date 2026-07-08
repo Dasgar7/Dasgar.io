@@ -49,6 +49,9 @@ export class GameServer {
     for (let i = 0; i < VIRUS_COUNT; i++) {
       this.spawnVirus();
     }
+    for (let i = 0; i < 12; i++) {
+      this.spawnBot();
+    }
   }
 
   private spawnFood() {
@@ -72,12 +75,221 @@ export class GameServer {
     });
   }
 
+  private botNames = [
+    'Alpha', 'Beta', 'GamerPro', 'Slayer', 'Blobby', 'Chomp', 'Speedy', 'Titan',
+    'Nebula', 'Apex', 'Wumbo', 'Divide', 'Conquer', 'HungryBlob', 'Void', 'Eclipse',
+    'Spectre', 'Fury', 'Zephyr', 'Rogue', 'Titanium', 'Hydra', 'Chronos', 'Shadow'
+  ];
+
+  private spawnBot(botId?: string) {
+    const id = botId || `bot_${uuidv4()}`;
+    const name = this.botNames[Math.floor(Math.random() * this.botNames.length)] + ' [Bot]';
+    const color = colors[Math.floor(Math.random() * colors.length)];
+    const startMass = BASE_PLAYER_MASS;
+    
+    const bot: Player = {
+      id,
+      name,
+      color,
+      cells: [{
+        id: uuidv4(),
+        playerId: id,
+        x: Math.random() * WORLD_SIZE,
+        y: Math.random() * WORLD_SIZE,
+        mass: startMass,
+        radius: massToRadius(startMass),
+        vx: 0,
+        vy: 0,
+        mergeTimer: 0
+      }],
+      score: startMass,
+      targetX: Math.random() * WORLD_SIZE,
+      targetY: Math.random() * WORLD_SIZE,
+      lastSplitTime: 0
+    };
+    
+    this.players.set(id, bot);
+  }
+
+  private botSplit(player: Player) {
+    if (player.cells.length >= 16) return;
+    
+    const now = Date.now();
+    if (player.lastSplitTime && now - player.lastSplitTime < 500) return;
+    player.lastSplitTime = now;
+
+    const newCells: PlayerCell[] = [];
+    const currentCells = [...player.cells];
+    for (const cell of currentCells) {
+      if (player.cells.length + newCells.length >= 16) break;
+      
+      if (cell.mass >= BASE_PLAYER_MASS * 2) {
+        cell.mass /= 2;
+        cell.radius = massToRadius(cell.mass);
+        cell.mergeTimer = SPLIT_COOLDOWN_MS;
+
+        const dx = player.targetX - cell.x;
+        const dy = player.targetY - cell.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        
+        let dirX = 1, dirY = 0;
+        if (dist > 0) {
+          dirX = dx / dist;
+          dirY = dy / dist;
+        }
+
+        newCells.push({
+          id: uuidv4(),
+          playerId: player.id,
+          x: cell.x,
+          y: cell.y,
+          mass: cell.mass,
+          radius: massToRadius(cell.mass),
+          vx: dirX * SPLIT_SPEED,
+          vy: dirY * SPLIT_SPEED,
+          mergeTimer: SPLIT_COOLDOWN_MS
+        });
+      }
+    }
+    player.cells.push(...newCells);
+  }
+
+  private updateBots(dt: number) {
+    for (const bot of this.players.values()) {
+      if (!bot.id.startsWith('bot_') || bot.cells.length === 0) continue;
+
+      let botX = 0, botY = 0, botMass = 0;
+      let maxOurMass = 0;
+      for (const cell of bot.cells) {
+        botX += cell.x * cell.mass;
+        botY += cell.y * cell.mass;
+        botMass += cell.mass;
+        if (cell.mass > maxOurMass) maxOurMass = cell.mass;
+      }
+      botX /= botMass;
+      botY /= botMass;
+
+      let forceX = 0;
+      let forceY = 0;
+
+      let fleeCount = 0;
+      let fleeX = 0;
+      let fleeY = 0;
+
+      let chaseCount = 0;
+      let chaseX = 0;
+      let chaseY = 0;
+      let closestChaseCell: PlayerCell | null = null;
+      let closestChaseDist = Infinity;
+
+      for (const other of this.players.values()) {
+        if (other.id === bot.id || other.cells.length === 0) continue;
+        for (const oCell of other.cells) {
+          const dx = oCell.x - botX;
+          const dy = oCell.y - botY;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist > 600) continue;
+
+          if (oCell.mass > maxOurMass * EAT_MASS_RATIO) {
+            const weight = (600 - dist) / 600;
+            if (dist > 0) {
+              fleeX -= (dx / dist) * weight;
+              fleeY -= (dy / dist) * weight;
+              fleeCount++;
+            }
+          } else if (maxOurMass > oCell.mass * EAT_MASS_RATIO) {
+            const weight = (600 - dist) / 600;
+            if (dist > 0) {
+              chaseX += (dx / dist) * weight;
+              chaseY += (dy / dist) * weight;
+              chaseCount++;
+              if (dist < closestChaseDist) {
+                closestChaseDist = dist;
+                closestChaseCell = oCell;
+              }
+            }
+          }
+        }
+      }
+
+      let avoidVirusX = 0;
+      let avoidVirusY = 0;
+      let avoidVirusCount = 0;
+      for (const virus of this.viruses.values()) {
+        const dx = virus.x - botX;
+        const dy = virus.y - botY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist > 300) continue;
+
+        if (maxOurMass > virus.mass * EAT_MASS_RATIO) {
+          const weight = (300 - dist) / 300;
+          if (dist > 0) {
+            avoidVirusX -= (dx / dist) * weight;
+            avoidVirusY -= (dy / dist) * weight;
+            avoidVirusCount++;
+          }
+        }
+      }
+
+      if (fleeCount > 0) {
+        forceX = fleeX;
+        forceY = fleeY;
+      } else if (avoidVirusCount > 0) {
+        forceX = avoidVirusX;
+        forceY = avoidVirusY;
+      } else if (chaseCount > 0) {
+        forceX = chaseX;
+        forceY = chaseY;
+
+        if (closestChaseCell && bot.cells.length < 8 && Math.random() < 0.02) {
+          const splitKillRange = maxOurMass * 5;
+          if (closestChaseDist < splitKillRange && maxOurMass > closestChaseCell.mass * 2.5) {
+            this.botSplit(bot);
+          }
+        }
+      } else {
+        let closestFood: Food | null = null;
+        let minFoodDist = Infinity;
+        for (const food of this.foods.values()) {
+          const dx = food.x - botX;
+          const dy = food.y - botY;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < minFoodDist) {
+            minFoodDist = dist;
+            closestFood = food;
+          }
+        }
+
+        if (closestFood) {
+          const dx = closestFood.x - botX;
+          const dy = closestFood.y - botY;
+          if (minFoodDist > 0) {
+            forceX = dx / minFoodDist;
+            forceY = dy / minFoodDist;
+          }
+        } else {
+          if (Math.random() < 0.05) {
+            bot.targetX = Math.random() * WORLD_SIZE;
+            bot.targetY = Math.random() * WORLD_SIZE;
+          }
+          continue;
+        }
+      }
+
+      const forceMag = Math.sqrt(forceX * forceX + forceY * forceY);
+      if (forceMag > 0) {
+        bot.targetX = botX + (forceX / forceMag) * 300;
+        bot.targetY = botY + (forceY / forceMag) * 300;
+      }
+    }
+  }
+
   private setupSockets() {
     this.io.on('connection', (socket: Socket) => {
       console.log('Player connected:', socket.id);
 
-      socket.on('join', (name: string) => {
-        const color = colors[Math.floor(Math.random() * colors.length)];
+      socket.on('join', (name: string, skin?: string) => {
+        const color = skin || colors[Math.floor(Math.random() * colors.length)];
         const startMass = BASE_PLAYER_MASS;
         const player: Player = {
           id: socket.id,
@@ -103,6 +315,26 @@ export class GameServer {
         // Ensure starting position is safe (simple random for now)
         this.players.set(socket.id, player);
         this.broadcastToPlayer(socket.id); // Send initial state immediately
+      });
+
+      socket.on('spectate', () => {
+        const player: Player = {
+          id: socket.id,
+          name: 'Spectator',
+          color: '#ffffff',
+          cells: [],
+          score: 0,
+          targetX: WORLD_SIZE / 2,
+          targetY: WORLD_SIZE / 2,
+          lastSplitTime: 0,
+          isSpectating: true
+        };
+        this.players.set(socket.id, player);
+        this.broadcastToPlayer(socket.id);
+      });
+
+      socket.on('leave', () => {
+        this.players.delete(socket.id);
       });
 
       socket.on('target', (target: { x: number, y: number }) => {
@@ -223,6 +455,9 @@ export class GameServer {
   }
 
   private updatePhysics(dt: number) {
+    // 0. Update bots target and splitting behavior
+    this.updateBots(dt);
+
     // 1. Move ejected masses
     for (const [id, eject] of this.ejectedMasses.entries()) {
       eject.x += eject.vx * dt;
@@ -244,38 +479,30 @@ export class GameServer {
     // 2. Move players
     for (const player of this.players.values()) {
       let totalMass = 0;
-      
       for (const cell of player.cells) {
-        if (cell.mergeTimer > 0) {
-          cell.mergeTimer -= dt * 1000;
-        }
+        if (cell.mergeTimer > 0) cell.mergeTimer -= dt * 1000;
 
-        // Apply momentum (from splitting/ejecting)
-        cell.x += cell.vx * dt;
-        cell.y += cell.vy * dt;
         cell.vx *= Math.pow(0.1, dt);
         cell.vy *= Math.pow(0.1, dt);
+        if (Math.abs(cell.vx) < 1) cell.vx = 0;
+        if (Math.abs(cell.vy) < 1) cell.vy = 0;
 
-        // Move towards target
-        if (Math.abs(cell.vx) < 10 && Math.abs(cell.vy) < 10) {
-           const dx = player.targetX - cell.x;
-           const dy = player.targetY - cell.y;
-           const dist = Math.sqrt(dx * dx + dy * dy);
-           
-           if (dist > 0) {
-             // Speed is inversely proportional to mass (sqrt gives a nice curve)
-             const speed = 1500 / Math.pow(cell.mass, 0.5); 
-             // Don't overshoot target if close
-             const moveDist = Math.min(speed * dt, dist);
-             cell.x += (dx / dist) * moveDist;
-             cell.y += (dy / dist) * moveDist;
-           }
+        const dx = player.targetX - cell.x;
+        const dy = player.targetY - cell.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const speed = 1500 / Math.pow(cell.mass, 0.5);
+
+        let targetVx = 0, targetVy = 0;
+        if (dist > 1) {
+          targetVx = (dx / dist) * speed;
+          targetVy = (dy / dist) * speed;
         }
 
-        // Clamp to world bounds
+        cell.x += (targetVx + cell.vx) * dt;
+        cell.y += (targetVy + cell.vy) * dt;
+
         cell.x = Math.max(cell.radius, Math.min(WORLD_SIZE - cell.radius, cell.x));
         cell.y = Math.max(cell.radius, Math.min(WORLD_SIZE - cell.radius, cell.y));
-        
         totalMass += cell.mass;
       }
       player.score = totalMass;
@@ -440,11 +667,18 @@ export class GameServer {
       }
     }
 
-    // Remove players with 0 cells
+    // Remove players with 0 cells (who are not spectating)
     for (const [id, player] of this.players.entries()) {
-      if (player.cells.length === 0) {
+      if (player.cells.length === 0 && !player.isSpectating) {
         // Player died
-        this.io.to(id).emit('died', player.score);
+        if (!id.startsWith('bot_')) {
+          this.io.to(id).emit('died', player.score);
+        } else {
+          // Respawn another bot in 2 seconds
+          setTimeout(() => {
+            this.spawnBot(id);
+          }, 2000);
+        }
         this.players.delete(id);
       }
     }
@@ -463,7 +697,7 @@ export class GameServer {
 
     const packedPlayers = Array.from(this.players.values()).map(p => ({
       id: p.id, n: p.name, c: p.color, s: p.score,
-      cells: p.cells.map(c => ({ id: c.id, x: Math.round(c.x), y: Math.round(c.y), r: Math.round(c.radius) }))
+      cells: p.cells.map(c => ({ id: c.id, x: Math.round(c.x), y: Math.round(c.y), r: Math.round(c.radius), vx: c.vx, vy: c.vy }))
     }));
 
     const packedEjected = Array.from(this.ejectedMasses.values()).map(e => ({
@@ -471,6 +705,7 @@ export class GameServer {
     }));
 
     for (const [id] of this.players.entries()) {
+      if (id.startsWith('bot_')) continue;
       this.broadcastToPlayer(id, leaderboard, packedViruses, packedPlayers, packedEjected);
     }
   }
@@ -499,7 +734,7 @@ export class GameServer {
     if (!packedPlayers) {
       packedPlayers = Array.from(this.players.values()).map(p => ({
         id: p.id, n: p.name, c: p.color, s: p.score,
-        cells: p.cells.map(c => ({ id: c.id, x: Math.round(c.x), y: Math.round(c.y), r: Math.round(c.radius) }))
+        cells: p.cells.map(c => ({ id: c.id, x: Math.round(c.x), y: Math.round(c.y), r: Math.round(c.radius), vx: c.vx, vy: c.vy }))
       }));
     }
     if (!packedEjected) {
